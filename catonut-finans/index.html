@@ -64,6 +64,14 @@ main .wrap{display:flex;flex-direction:column;gap:14px;padding-block:4px 16px}
 .list{display:flex;flex-direction:column}
 .item{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--line);cursor:pointer;background:none;border-left:0;border-right:0;border-top:0;text-align:left;width:100%}
 .item:last-child{border-bottom:0}
+.itemmain{display:flex;align-items:center;gap:12px;flex:1;min-width:0;background:none;border:0;padding:0;text-align:left;cursor:pointer}
+.tick{flex:none;width:34px;height:34px;border-radius:50%;border:2px solid var(--line);background:var(--surface);color:transparent;font-weight:800;font-size:16px;cursor:pointer;display:grid;place-items:center}
+.tick.on{background:var(--inc);border-color:var(--inc);color:var(--surface)}
+.due{width:100%;display:flex;align-items:center;gap:12px;border:1px solid var(--warn);background:var(--warn-soft);border-radius:var(--r);padding:14px;cursor:pointer;text-align:left}
+.due .t{flex:1;min-width:0}
+.due b.v{font-family:var(--f-display);font-size:20px;display:block}
+.check{display:flex;align-items:center;gap:10px;padding:12px;border-radius:11px;border:1px solid var(--line);background:var(--surface);font-weight:700;cursor:pointer}
+.check input{width:22px;height:22px;accent-color:var(--inc)}
 .item .t{flex:1;min-width:0}
 .item .t b{display:block;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .item .t small{color:var(--muted);font-size:12px}
@@ -342,6 +350,7 @@ function viewSummary(){
     <div class="row">${state}<span class="pill num">Vergi sonrası ${money(s.after)}</span></div>
   </section>
   ${quickActions()}
+  ${dueCard()}
   <div class="tiles">
     <div class="tile"><div class="eyebrow">Ciro</div><div class="v num">${money(s.inGross)}</div><div class="s num">KDV hariç ${money(s.inNet)}</div></div>
     <div class="tile"><div class="eyebrow">Giderler</div><div class="v num">${money(s.outGross)}</div><div class="s num">KDV hariç ${money(s.outNet)}</div></div>
@@ -373,6 +382,12 @@ function viewSummary(){
     ${topC.length? `<div class="list">${topC.map(([id,v])=>{const c=byId(id); return `<button class="item" data-edit="${h(id)}"><span class="thumb">${h((c?.name||"?")[0])}</span><span class="t"><b>${h(c?.name||"Silinmiş müşteri")}</b><small>${h(c?.channel||"")}</small></span><span class="a num">${money(v)}</span></button>`;}).join("")}</div>` : `<p class="hint">Satışlara müşteri seçtiğinizde burada sıralanır.</p>`}
   </section>`;
 }
+const unpaid = () => tx().filter(r=>r.type==="gelir"&&r.paid===false);
+function dueCard(){
+  const u=unpaid(); if(!u.length) return "";
+  const sum=u.reduce((s,r)=>s+r.amount,0);
+  return `<button class="due" data-act="showunpaid"><span class="t"><span class="eyebrow">Ücreti alınmamış satışlar</span><b class="v num">${money(sum)}</b><small class="hint">${u.length} satış · görmek ve tik atmak için dokunun</small></span><span aria-hidden="true" style="font-size:22px">›</span></button>`;
+}
 function quickActions(){
   return `<div class="quick">
     <button data-act="new-gelir"><span class="d inc">+</span>Satış</button>
@@ -383,9 +398,10 @@ function quickActions(){
 }
 
 function viewTx(){
-  const filters=[["all","Hepsi"],["gelir","Gelir"],["gider","Gider"],["Kargo","Kargo"],["Fason","Fason"]];
+  const filters=[["all","Hepsi"],["unpaid",`Ücreti alınmadı${unpaid().length?" ("+unpaid().length+")":""}`],["gelir","Gelir"],["gider","Gider"],["Kargo","Kargo"],["Fason","Fason"]];
   let list=inPeriod(S.period);
-  if(S.txFilter==="gelir"||S.txFilter==="gider") list=list.filter(r=>r.type===S.txFilter);
+  if(S.txFilter==="unpaid") list=list.filter(r=>r.type==="gelir"&&r.paid===false);
+  else if(S.txFilter==="gelir"||S.txFilter==="gider") list=list.filter(r=>r.type===S.txFilter);
   else if(S.txFilter!=="all") list=list.filter(r=>r.cat===S.txFilter);
   const q=S.q.toLocaleLowerCase("tr");
   if(q) list=list.filter(r=>[r.desc,r.cat,r.supplier,byId(r.customerId)?.name].join(" ").toLocaleLowerCase("tr").includes(q));
@@ -403,10 +419,12 @@ function viewTx(){
 function txRow(r){
   const c=r.customerId?byId(r.customerId):null; const src=photoSrc(r.photo);
   const sub=[fmtDate(r.date), r.type==="gelir"? (c?.name||r.cat) : (r.supplier||r.cat), r.qty? r.qty+" adet":""].filter(Boolean).join(" · ");
-  return `<button class="item" data-edit="${h(r.id)}">
-    ${src?`<img class="thumb" src="${h(src)}" alt="">`:`<span class="thumb" style="color:${r.type==="gelir"?"var(--inc)":"var(--exp)"}">${r.type==="gelir"?"+":"−"}</span>`}
-    <span class="t"><b>${h(r.desc||r.cat)}</b><small>${h(sub)}</small></span>
-    <span class="a num ${r.type==="gelir"?"inc":"exp"}">${r.type==="gelir"?"+":"−"}${money(r.amount)}</span></button>`;
+  const isIn=r.type==="gelir", paid=r.paid!==false;
+  const tick = isIn ? `<button class="tick ${paid?"on":""}" data-paid="${h(r.id)}" aria-pressed="${paid}" aria-label="Ücreti alındı" title="Ücreti alındı">✓</button>` : "";
+  return `<div class="item"><button class="itemmain" data-edit="${h(r.id)}">
+    ${src?`<img class="thumb" src="${h(src)}" alt="">`:`<span class="thumb" style="color:${isIn?"var(--inc)":"var(--exp)"}">${isIn?"+":"−"}</span>`}
+    <span class="t"><b>${h(r.desc||r.cat)}</b><small>${h(sub)}</small>${isIn&&!paid?`<br><span class="pill warn">Ücreti alınmadı</span>`:""}</span>
+    <span class="a num ${isIn?"inc":"exp"}">${isIn?"+":"−"}${money(r.amount)}</span></button>${tick}</div>`;
 }
 
 function viewProducts(){
@@ -422,13 +440,13 @@ function viewProducts(){
 }
 
 function viewCustomers(){
-  const totals={}; tx().filter(r=>r.type==="gelir"&&r.customerId).forEach(r=>{ const t=totals[r.customerId]||(totals[r.customerId]={sum:0,n:0,last:""}); t.sum+=r.amount; t.n++; if(r.date>t.last) t.last=r.date; });
+  const totals={}; tx().filter(r=>r.type==="gelir"&&r.customerId).forEach(r=>{ const t=totals[r.customerId]||(totals[r.customerId]={sum:0,n:0,last:"",due:0}); t.sum+=r.amount; t.n++; if(r.paid===false) t.due+=r.amount; if(r.date>t.last) t.last=r.date; });
   const q=S.q.toLocaleLowerCase("tr");
   const list=customers().filter(c=>!q||[c.name,c.phone,c.city,c.channel].join(" ").toLocaleLowerCase("tr").includes(q)).sort((a,b)=>(totals[b.id]?.sum||0)-(totals[a.id]?.sum||0));
   return `<input class="search" id="q" type="search" placeholder="Müşteri ara" value="${h(S.q)}">
   <section class="card"><div class="row" style="justify-content:space-between"><h2 style="margin:0">Müşteriler <span class="hint">(${customers().length})</span></h2><button class="btn sm" data-act="new-customer">Müşteri ekle</button></div>
   ${list.length? `<div class="list">${list.map(c=>{const t=totals[c.id]; return `<button class="item" data-edit="${h(c.id)}"><span class="thumb">${h((c.name||"?")[0])}</span>
-    <span class="t"><b>${h(c.name)}</b><small>${h([c.channel,c.city,t?`${t.n} sipariş · son ${fmtDate(t.last)}`:"Sipariş yok"].filter(Boolean).join(" · "))}</small></span>
+    <span class="t"><b>${h(c.name)}</b><small>${h([c.channel,c.city,t?`${t.n} sipariş · son ${fmtDate(t.last)}`:"Sipariş yok"].filter(Boolean).join(" · "))}</small>${t&&t.due?`<br><span class="pill warn num">${money(t.due)} alınmadı</span>`:""}</span>
     <span class="a num">${money(t?.sum||0)}</span></button>`;}).join("")}</div>` : `<div class="empty"><b>Müşteri yok</b>Müşteri ekleyip satışlarda seçin; kim ne kadar aldı burada görünür.</div>`}
   </section>`;
 }
@@ -493,6 +511,7 @@ function txForm(r){
       <div class="field"><label for="f_vat">KDV oranı</label><select id="f_vat">${[0,1,10,20].map(v=>`<option value="${v}" ${num(r.vat)===v?"selected":""}>%${v}</option>`).join("")}</select></div>
     </div>
     <p class="hint num" id="vatHint"></p>
+    ${isIn?`<label class="check" for="f_paid"><input type="checkbox" id="f_paid" ${r.paid===false?"":"checked"}> Ücreti alındı</label>`:""}
     ${isIn?`<div class="field"><label for="f_cust">Müşteri</label><select id="f_cust"><option value="">Seçilmedi</option>${customers().sort((a,b)=>a.name.localeCompare(b.name,"tr")).map(c=>`<option value="${h(c.id)}" ${c.id===r.customerId?"selected":""}>${h(c.name)}</option>`).join("")}</select><button type="button" class="btn ghost sm" data-act="quickcust" style="align-self:flex-start">Yeni müşteri ekle</button></div>
       <div class="field"><label for="f_prod">Ürün (isteğe bağlı)</label><select id="f_prod"><option value="">Seçilmedi</option>${products().map(p=>`<option value="${h(p.id)}" ${p.id===r.productId?"selected":""}>${h(p.name)}</option>`).join("")}</select></div>`
     :`<div class="field"><label for="f_sup">${r.cat==="Kargo"?"Kargo firması":r.cat==="Fason"?"Fason atölyesi":"Firma / tedarikçi"}</label><input id="f_sup" list="supList" value="${h(r.supplier||"")}"><datalist id="supList">${(r.cat==="Kargo"?CARGO:[...new Set(tx().map(x=>x.supplier).filter(Boolean))]).map(x=>`<option value="${h(x)}">`).join("")}</datalist></div>`}
@@ -505,6 +524,7 @@ function txForm(r){
 function readTx(){ const r={...sheetCtx.rec}; const g=id=>document.getElementById(id);
   r.cat=g("f_cat").value; r.date=g("f_date").value||today(); r.amount=num(g("f_amount").value); r.vat=num(g("f_vat").value);
   if(g("f_qty")) r.qty=num(g("f_qty").value)||0; if(g("f_unit")) r.unit=num(g("f_unit").value)||0;
+  if(g("f_paid")) r.paid=g("f_paid").checked; else delete r.paid;
   if(g("f_cust")) r.customerId=g("f_cust").value||""; if(g("f_prod")) r.productId=g("f_prod").value||""; if(g("f_sup")) r.supplier=g("f_sup").value.trim();
   r.desc=g("f_desc").value.trim(); return r; }
 function updVat(){ const a=$("#f_amount"), el=$("#vatHint"); if(!a||!el) return; const amt=num(a.value), v=num($("#f_vat").value); const net=amt/(1+v/100);
@@ -606,8 +626,8 @@ function settingsForm(){
 async function download(kind){
   if(!S.downloads) return;
   let data, filename;
-  if(kind==="csv"){ const rows=[["Tarih","Tür","Kategori","Açıklama","Müşteri/Firma","Adet","Tutar KDV dahil","KDV %","KDV hariç","KDV"]];
-    tx().sort((a,b)=>a.date.localeCompare(b.date)).forEach(r=>rows.push([r.date,r.type,r.cat,r.desc||"",r.type==="gelir"?(byId(r.customerId)?.name||""):(r.supplier||""),r.qty||"",r.amount.toFixed(2),r.vat,netOf(r).toFixed(2),vatOf(r).toFixed(2)]));
+  if(kind==="csv"){ const rows=[["Tarih","Tür","Kategori","Açıklama","Müşteri/Firma","Adet","Tutar KDV dahil","KDV %","KDV hariç","KDV","Ücreti alındı"]];
+    tx().sort((a,b)=>a.date.localeCompare(b.date)).forEach(r=>rows.push([r.date,r.type,r.cat,r.desc||"",r.type==="gelir"?(byId(r.customerId)?.name||""):(r.supplier||""),r.qty||"",r.amount.toFixed(2),r.vat,netOf(r).toFixed(2),vatOf(r).toFixed(2),r.type==="gelir"?(r.paid===false?"Hayır":"Evet"):""]));
     data="﻿"+rows.map(r=>r.map(x=>`"${String(x).replace(/"/g,'""')}"`).join(";")).join("\n"); filename=`catonut-islemler-${today()}.csv`; }
   else { data=JSON.stringify({settings:S.settings,records:S.records},null,1); filename=`catonut-yedek-${today()}.json`; }
   try{ await S.downloads.save({filename,data}); }catch(e){ if(e.code!=="declined") toast("İndirilemedi"); }
@@ -622,7 +642,7 @@ function demoData(){
   const recs=[c1,c2,p1]; const T=(o)=>recs.push({id:uid(),kind:"tx",created:Date.now(),demo:true,...o});
   for(let m=5;m>=0;m--){ const k=1+(5-m)*0.12;
     T({type:"gelir",cat:"Satış",date:d(m,5),amount:Math.round(14800*k),vat:20,customerId:c1.id,qty:Math.round(20*k),desc:"Örnek: Instagram satışları"});
-    T({type:"gelir",cat:"Toptan satış",date:d(m,18),amount:Math.round(22500*k),vat:20,customerId:c2.id,qty:Math.round(40*k),desc:"Örnek: Bayi siparişi"});
+    T({type:"gelir",cat:"Toptan satış",date:d(m,18),amount:Math.round(22500*k),vat:20,customerId:c2.id,paid:m>1,qty:Math.round(40*k),desc:"Örnek: Bayi siparişi"});
     T({type:"gider",cat:"Hammadde",date:d(m,3),amount:Math.round(9200*k),vat:20,supplier:"Örnek Tedarik",desc:"Örnek: Sisal ve MDF"});
     T({type:"gider",cat:"Fason",date:d(m,10),amount:Math.round(4200*k),vat:20,qty:Math.round(60*k),supplier:"Örnek Atölye",desc:"Örnek: Montaj işçiliği"});
     T({type:"gider",cat:"Kargo",date:d(m,25),amount:Math.round(3300*k),vat:20,qty:Math.round(60*k),supplier:"Yurtiçi Kargo",desc:"Örnek: Aylık kargo"});
@@ -645,6 +665,7 @@ document.addEventListener("click",async e=>{
   const f=t.closest("[data-txf]"); if(f){ S.txFilter=f.dataset.txf; render(); return; }
   const ask_=t.closest("[data-ask]"); if(ask_){ ask(ask_.dataset.ask); return; }
   const tt=t.closest("[data-ttype]"); if(tt&&sheetCtx?.kind==="tx"){ const r=readTx(); r.type=tt.dataset.ttype; r.cat=r.type==="gelir"?"Satış":"Hammadde"; txForm(r); return; }
+  const pd=t.closest("[data-paid]"); if(pd){ const r=byId(pd.dataset.paid); if(!r) return; const paid=r.paid===false; await store.save({...r,paid}); toast(paid?"Ücreti alındı olarak işaretlendi":"Ücreti alınmadı olarak işaretlendi"); return; }
   const ed=t.closest("[data-edit]"); if(ed){ const r=byId(ed.dataset.edit); if(!r) return; if(r.kind==="tx") txForm({...r}); else if(r.kind==="product") productForm(JSON.parse(JSON.stringify(r))); else customerForm({...r}); return; }
   const del=t.closest("[data-del]"); if(del){ if(del.dataset.armed){ await store.remove(del.dataset.del); closeSheet(); toast("Silindi"); } else { del.dataset.armed="1"; del.textContent="Emin misiniz? Sil"; } return; }
   const a=t.closest("[data-act]"); if(!a) return;
@@ -663,6 +684,7 @@ document.addEventListener("click",async e=>{
   else if(act==="quickcust"){ const r=readTx(); sheetCtx.returnTx=r; customerForm({id:uid(),kind:"customer",channel:"Instagram",_return:r}); }
   else if(act==="demo"){ a.disabled=true; for(const r of demoData()) await store.save(r); toast("Örnek veriler eklendi"); }
   else if(act==="cleardemo"){ for(const r of S.records.filter(x=>x.demo)) await store.remove(r.id); toast("Örnekler silindi"); }
+  else if(act==="showunpaid"){ S.tab="islem"; S.txFilter="unpaid"; S.period="all"; S.q=""; render(); window.scrollTo(0,0); }
   else if(act==="clearchat"){ S.chat=[]; render(); }
   else if(act==="export-csv") download("csv");
   else if(act==="export-json") download("json");
